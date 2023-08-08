@@ -1,130 +1,72 @@
 #include <cuda_runtime.h>
 #include <stdio.h>
 
-__global__ void print_idx_kernel(){
-    printf("block idx: (%3d, %3d, %3d), thread idx: (%3d, %3d, %3d)\n",
-         blockIdx.z, blockIdx.y, blockIdx.x,
-         threadIdx.z, threadIdx.y, threadIdx.x);
-}
+__global__ void print_cored_kernel()
+{
+    // thread index, detail see README.md
+    int index = threadIdx.z * blockIdx.x * blockIdx.y + \
+                threadIdx.y * blockIdx.x + \
+                threadIdx.x;
 
-__global__ void print_dim_kernel(){
-    printf("grid dimension: (%3d, %3d, %3d), block dimension: (%3d, %3d, %3d)\n",
-         gridDim.z, gridDim.y, gridDim.x,
-         blockDim.z, blockDim.y, blockDim.x);
-}
-
-__global__ void print_thread_idx_per_block_kernel(){
-    int index = threadIdx.z * blockDim.x * blockDim.y + \
-              threadIdx.y * blockDim.x + \
-              threadIdx.x;
-
-    printf("block idx: (%3d, %3d, %3d), thread idx: %3d\n",
-         blockIdx.z, blockIdx.y, blockIdx.x,
-         index);
-}
-
-__global__ void print_thread_idx_per_grid_kernel(){
-    int bSize  = blockDim.z * blockDim.y * blockDim.x;
-
-    int bIndex = blockIdx.z * gridDim.x * gridDim.y + \
-               blockIdx.y * gridDim.x + \
-               blockIdx.x;
-
-    int tIndex = threadIdx.z * blockDim.x * blockDim.y + \
-               threadIdx.y * blockDim.x + \
-               threadIdx.x;
-
-    int index  = bIndex * bSize + tIndex;
-
-    printf("block idx: %3d, thread idx in block: %3d, thread idx: %3d\n", 
-         bIndex, tIndex, index);
-}
-
-__global__ void print_cord_kernel(){
-    int index = threadIdx.z * blockDim.x * blockDim.y + \
-              threadIdx.y * blockDim.x + \
-              threadIdx.x;
-
+    // blockIdx.x, blockIdx.y, blockIdx.z 表示当前线程块在整个网格中的位置 
+    // blockDim.x, blockDim.y, blockDim.z 表示当前线程块包含的线程数量
     int x  = blockIdx.x * blockDim.x + threadIdx.x;
     int y  = blockIdx.y * blockDim.y + threadIdx.y;
 
-    printf("block idx: (%3d, %3d, %3d), thread idx: %3d, cord: (%3d, %3d)\n",
-         blockIdx.z, blockIdx.y, blockIdx.x,
-         index, x, y);
-}
+    // 可以看下这里的是什么
+    // printf("blockDim.x: %3d blockDim.y: %3d \n",blockDim.x, blockDim.y);
+    // printf("blockIdx.x: %3d blockIdx.y: %3d \n",blockIdx.x, blockIdx.y);
 
-void print_one_dim(){
-    int inputSize = 8;
-    int blockDim = 4;
-    int gridDim = inputSize / blockDim; // 2
+    printf("block idx:(%3d, %3d, %3d)  Threads Index: (%d)  cord(%3d, %3d)\n", 
+    blockIdx.z, blockIdx.y, blockIdx.x,
+    index,
+    x, y);
+} 
 
-    // 定义block和grid的维度
-    dim3 block(blockDim);  // 说明一个block有多少个threads
-    dim3 grid(gridDim);    // 说明一个grid里面有多少个block 
-
-    /* 这里建议大家吧每一函数都试一遍*/
-    // print_idx_kernel<<<grid, block>>>();
-    // print_dim_kernel<<<grid, block>>>();
-    // print_thread_idx_per_block_kernel<<<grid, block>>>();
-    print_thread_idx_per_grid_kernel<<<grid, block>>>();
-
-    cudaDeviceSynchronize();
-}
-
-// 8个线程被分成了两个
-void print_two_dim(){
-    int inputWidth = 4;
-
-    int blockDim = 2;  
-    int gridDim = inputWidth / blockDim;
-
-    dim3 block(blockDim, blockDim);
-    dim3 grid(gridDim, gridDim);
-
-    /* 这里建议大家吧每一函数都试一遍*/
-    // print_idx_kernel<<<grid, block>>>();
-    // print_dim_kernel<<<grid, block>>>();
-    // print_thread_idx_per_block_kernel<<<grid, block>>>();
-    print_thread_idx_per_grid_kernel<<<grid, block>>>();
-
-    cudaDeviceSynchronize();
-}
-
-void print_cord(){
-    int inputWidth = 4;
-
+void print_two_dim()
+{
+    // This example is used to understand the two dimensions block and grid
+    int input_width = 8;
     int blockDim = 2;
-    int gridDim = inputWidth / blockDim;
+    // calculate gridDim, num of block per grid, 4 blocks
+    int gridDim = input_width / blockDim; 
 
+    /*
+    define dimension of the grid and block
+    4x4 blocks, each blocks 2x2 threads -> 4x4x2x2 = 64 total threads
+    */ 
     dim3 block(blockDim, blockDim);
     dim3 grid(gridDim, gridDim);
 
-    print_cord_kernel<<<grid, block>>>();
-    // print_thread_idx_per_grid_kernel<<<grid, block>>>();
+    // launch the kernel
+    print_cored_kernel<<<grid, block>>>();
+
     cudaDeviceSynchronize();
 }
 
-void print_coordinates() {
-    dim3 block(3, 4, 2);
-    dim3 grid(2, 2, 2);
 
-    print_cord_kernel<<<grid, block>>>();
-
-    cudaDeviceSynchronize(); // 确保内核完成后才继续执行主机代码
-}
-
-int main() {
+// 因为很多时候都是使用
+void print_one_dim()
+{
+    printf("inside print_one_dim\n");
     /*
-    synchronize是同步的意思，有几种synchronize
-
-    cudaDeviceSynchronize: CPU与GPU端完成同步，CPU不执行之后的语句，知道这个语句以前的所有cuda操作结束
-    cudaStreamSynchronize: 跟cudaDeviceSynchronize很像，但是这个是针对某一个stream的。只同步指定的stream中的cpu/gpu操作，其他的不管
-    cudaThreadSynchronize: 现在已经不被推荐使用的方法
-    __syncthreads:         线程块内同步
+    Total 8 threads, one grids, 4 threads per block  
     */
+    int total_threads = 8;
+    int blockDim = 4;  // how many threads per block
+    int gridDim = total_threads / blockDim; // number of blocks per grid
+
+    // define the dimensions of blocks and grids
+    dim3 block(blockDim); // how many threads inside one block 
+    dim3 grid(gridDim);
+    print_cored_kernel<<<grid, block>>>();
+   
+    cudaDeviceSynchronize();
+}   
+
+int main()
+{
     // print_one_dim();
-    // print_two_dim();
-    // print_cord();
-    print_coordinates();
+    print_two_dim();
     return 0;
 }
