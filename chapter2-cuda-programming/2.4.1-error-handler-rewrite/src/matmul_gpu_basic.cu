@@ -2,6 +2,7 @@
 #include "cuda.h"
 #include "stdio.h"
 #include "matmul_gpu_basic.h"
+#include "utils.hpp"
 
 /* matmul的函数实现*/
 __global__ void MatmulKernel(float *M_device, float *N_device, float *P_device, int width){
@@ -42,27 +43,30 @@ void MatmulOnDevice(float *M_host, float *N_host,
     float *N_device;
     float *P_device;
 
-    cudaMalloc(&M_device, size);
-    cudaMalloc(&N_device, size);
-    cudaMalloc(&P_device, size);
+    CUDA_CHECK(cudaMalloc(&M_device, size));
+    CUDA_CHECK(cudaMalloc(&N_device, size));
+    CUDA_CHECK(cudaMalloc(&P_device, size));
 
     // 把输入输出的矩阵信息从host搬到device
-    cudaMemcpy(M_device, M_host, size, cudaMemcpyHostToDevice);
-    cudaMemcpy(N_device, N_host,  size, cudaMemcpyHostToDevice);
+    CUDA_CHECK(cudaMemcpy(M_device, M_host, size, cudaMemcpyHostToDevice));
+    CUDA_CHECK(cudaMemcpy(N_device, N_host,  size, cudaMemcpyHostToDevice));
 
     // 分配grid, block
     dim3 dimBlock(blockSize, blockSize);
     int gridDim = (width + blockSize - 1) / blockSize;
-    dim3 dimGrid(gridDim, gridDim);
+    dim3 dimGrid(gridDim);
 
     // 调用kernel function计算
     MatmulKernel<<<dimGrid, dimBlock>>>(M_device, N_device, P_device, width);
 
     // 计算结果从device搬到host
-    cudaMemcpy(P_host, P_device, size , cudaMemcpyDeviceToHost);
+    CUDA_CHECK(cudaMemcpy(P_host, P_device, size , cudaMemcpyDeviceToHost));
 
     // 等待全部线程完成计算
-    cudaDeviceSynchronize();
+    CUDA_CHECK(cudaDeviceSynchronize());
+
+    /* 注意要在synchronization结束之后排查kernel的错误, 否则错误排查只会检查参数配置*/
+    LAST_KERNEL_CHECK(); 
 
     // Free
     cudaFree(P_device);

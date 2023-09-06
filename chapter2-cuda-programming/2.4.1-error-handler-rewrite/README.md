@@ -1,167 +1,108 @@
-## 1. 对比GPU 和 CPU的矩阵乘法的结果
+## 3. CUDA Error Handle
 
-这里对比一下1024x1024的矩阵相乘的速度，下面是对main函数分段的解析
+一个良好的cuda编程习惯里，我们习惯在调用一个cuda runtime api时，例如cudaMalloc() cudaMemcpy()我们就用error handler进行包装。这样
+可以方便我们排查错误的来源
 
-### 1.1 CPU上的矩阵相乘的方法
-cpu的办法会简单一些
+具体来说，CUDA的runtime API都会返回一个cudaError(枚举类), 可以通过枚举类来查看到它里面要么是成功了要么就是各种错误
+
+```__FILE__, __LINE__``` 这两个指的是当前文件，下面的行和文件名就是这里来的
+```bash
+ERROR: src/matmul_gpu_basic.cu:62, CODE:cudaErrorInvalidConfiguration, DETAIL:invalid configuration argument
+```
+
+至于这里两个，宏定义, 一个是用来检查CUDA Runtime API, 一个是检查核函数的。检查kernel function的时候，用```LAST_KERNEL_CHECK()```, 这个放在同步后面, 确保之前的所有CUDA操作（包括kernel的执行）都已经完成,Z再来检查
+
+有cudaPeekAtLastError或者cudaGetLastError, 区别是是否传播错误
 ```cpp
-void MatmulOnHost(float *M, float *N, float *P, int width)
-{
-    for (int i = 0; i < width; i ++)
-    {
-        for (int j = 0; j < width; j++)
-        {
-            float sum = 0;
-            for (int k = 0; k < width; k ++)
-            {
-                // M的行乘N的列, 这个循环M行每一个乘N的一个
-                float a = M[i * width + k];
-                float b = N[k * width + j];
-                sum += a * b;
-            }
-            P[i * width + j] = sum;   // 
-        }
-    }     
+kernelFunction<<<numBlocks, numThreads>>>();
+cudaError_t err1 = cudaPeekAtLastError();  // 只查看，不清除错误状态
+cudaError_t err2 = cudaGetLastError();  // 查看并清除错误状态
+```
+
+```cpp
+#include <cuda_runtime.h>
+#include <system_error>
+
+#define CUDA_CHECK(call)             __cudaCheck(call, __FILE__, __LINE__)
+#define LAST_KERNEL_CHECK()          __kernelCheck(__FILE__, __LINE__)
+#define BLOCKSIZE 16
+
+inline static void __cudaCheck(cudaError_t err, const char* file, const int line) {
+    if (err != cudaSuccess) {
+        printf("ERROR: %s:%d, ", file, line);
+        printf("CODE:%s, DETAIL:%s\n", cudaGetErrorName(err), cudaGetErrorString(err));
+        exit(1);
+    }
+}
+
+inline static void __kernelCheck(const char* file, const int line) {
+    /* 
+     * 在编写CUDA是，错误排查非常重要，默认的cuda runtime API中的函数都会返回cudaError_t类型的结果，
+     * 但是在写kernel函数的时候，需要通过cudaPeekAtLastError或者cudaGetLastError来获取错误
+     */
+    cudaError_t err = cudaPeekAtLastError();
+    if (err != cudaSuccess) {
+        printf("ERROR: %s:%d, ", file, line);
+        printf("CODE:%s, DETAIL:%s\n", cudaGetErrorName(err), cudaGetErrorString(err));
+        exit(1);
+    }
 }
 ```
 
-### 1.2 GPU举证相乘的流程
 
-MatmulOnDevice() 是给cpp文件调用的 MatmulKernel()用来写
 
-看一下函数的输入, case里面width设置的是1024, M_host, h_host都是1024x1024的矩阵, 填充是0-1之前的浮点数, 这里假设矩阵相乘都是方阵的(height = width)
+### 3.1 两个错误案例
+#### EX1: 
+这里分配之前矩阵乘法的blockSize = 64, 那么一个线程块里面有64x64=4096个线程，超出了1024的限制, 下面是不用KernelCheck()和用了的区别
 
-```cpp
-#ifndef MATMUL_GPU_BASIC_H
-#define MATMUL_GPU_BASIC_H
-
-// CUDA运行时库
-#include "cuda_runtime.h"
-#include "cuda.h"
-
-// 函数声明
-
-/**
- * 用于矩阵乘法的CUDA内核函数。
- * 
- * @param M_device 指向设备上第一个矩阵的指针。
- * @param N_device 指向设备上第二个矩阵的指针。
- * @param P_device 指向设备上输出矩阵的指针。
- * @param width 矩阵的宽度（假设是方阵）。
- */
-__global__ void MatmulKernel(float *M_device, float *N_device, float *P_device, int width);
-
-/**
- * 在设备上执行两个矩阵相乘的主机函数。
- * 
- * @param M_host 指向主机上第一个矩阵的指针。
- * @param N_host 指向主机上第二个矩阵的指针。
- * @param P_host 指向主机上输出矩阵的指针。
- * @param width 矩阵的宽度（假设是方阵）。
- * @param blockSize CUDA块的大小。
- */
-void MatmulOnDevice(float *M_host, float *N_host, float* P_host, int width, int blockSize);
-
-#endif // MATMUL_GPU_BASIC_H
-```
-
-**MatmulOnDevice()** 
-
+不加是不会报错的
 ```bash
-- 设置size, 矩阵大小, 用来分配内存
-- 分配GPU内存，输入输出
--  设置grid, block的布局
+matmul in cpu                  uses 4092.84 ms
+matmul in GPU Warmup           uses 199.453 ms
+matmul in GPU blockSize = 1    uses 13.1558 ms
+matmul in GPU blockSize = 16   uses 13.0716 ms
+matmul in GPU blockSize = 32   uses 13.0694 ms
+matmul in GPU blockSize = 64   uses 2.00626 ms
+res is different in 0, cpu: 260.89050293, gpu: 0.00000000
+Matmul result is different
 ```
 
-在之前的Grid, Block布局分析中提到过, block和grid的布局最好跟计算的内容是一致的, 例如说图像和这里的矩阵是2D, 所以block的中的线程设置是2D, 一个block里面包含16x16=256, 32x32=1024个线程, 然后grid里面包含多少个block是基于这个计算出来的, 可以做一个向上取整确保有足够的线程计算
+**加了会出现报错**, 这个错误 cudaErrorInvalidConfiguration 表示在执行CUDA kernel时，传递给 kernel 的配置参数无效。具体来说，CUDA kernel的配置包括线程块的数量、线程块内线程的数量等。
+```bash
+matmul in cpu                  uses 4115.42 ms
+matmul in GPU Warmup           uses 201.464 ms
+matmul in GPU blockSize = 1    uses 13.1182 ms
+matmul in GPU blockSize = 16   uses 13.0607 ms
+matmul in GPU blockSize = 32   uses 13.0602 ms
+ERROR: src/matmul_gpu_basic.cu:69, CODE:cudaErrorInvalidConfiguration, DETAIL:invalid configuration argument
+```
 
-设计布局的时候，如果处理的是矩阵，或者是二维度的图像,  先设计好好block里面的线程规划，然后基于这个设计好grid中的block规划
-
-这里的设计方案就是把一个矩阵切分成多个block来计算, 这里的case是1024x1024的, 用**blockSize** = 32 刚好够, 如果用16的话就是把1024x1024分成多个
-
-这里其实就是计算每一个线程的计算, 之前知道, 这里会堆出一大堆线程索引例如说(0, 0, 1)....(2, 1, 2) 对应的是第2个block块, x = 1, y = 2 的线程, 这些线程会同时计算但是并不会按顺序计算, 所以后面会有一个同步等待其他的线程一次性做完这些操作
+#### EX2: 
 ```cpp
-void MatmulOnDevice(float *M_host, float *N_host, 
-                    float* P_host, int width, int blockSize)
-{
-    /*
-    M_host: First Matrix ptr at host 
-    h_host: second matrix ptr at host
-    P_host: output matrix ptr at host 
-    */
-   // 设置矩阵尺寸
-    int size = width * width* sizeof(float);
-    // 开辟GPU内存
-    float *M_device;
-    float *N_device;
-    float *P_device;
-
-    cudaMalloc(&M_device, size);
-    cudaMalloc(&N_device, size);
-    cudaMalloc(&P_device, size);
-
-    // 把输入输出的矩阵信息从host搬到device
-    cudaMemcpy(M_device, M_host, size, cudaMemcpyHostToDevice);
-    cudaMemcpy(N_device, N_host,  size, cudaMemcpyHostToDevice);
-
     // 分配grid, block
     dim3 dimBlock(blockSize, blockSize);
     int gridDim = (width + blockSize - 1) / blockSize;
     dim3 dimGrid(gridDim, gridDim);
-
-    // 调用kernel function计算
-    MatmulKernel<<<dimGrid, dimBlock>>>(M_device, N_device, P_device, width);
-
-    // 计算结果从device搬到host
-    cudaMemcpy(P_host, P_device, size , cudaMemcpyDeviceToHost);
-
-    // 等待全部线程完成计算
-    cudaDeviceSynchronize();
-
-    // Free
-    cudaFree(P_device);
-    cudaFree(M_device);
-    cudaFree(N_device);
-
-}
 ```
-
-
-**MatmulKernel()**
-
-这里的int x, int y是一个数字, 因为在GPU上的内存是连续的, 我们之前分配的block, grid就是用来管理我自己的理解是索引写完就拿一个case出来写一个线程的计算, 写完就明白了。
-
-以这个case为例，总共有1024x1024个元素需要处理, 如果blockSize设置的是32, 每个block里面就有32x32=1024个线程处理这个项目, 根据计算就有(32, 32)个block, 也就是1024个
-
-M_element, N_element, p_element属于是每一个线程的局部变量, P_element在每一个线程都会有0, 然后M_element, N_element, P_device的数都是通过
-
-这里以(3, 2) 为案例, 就可以很好理解下面的M_element, N_element, p_element。 
+**写成了**
 ```cpp
-__global__ void MatmulKernel(float *M_device, float *N_device, float *P_device, int width){
-    /* 
-        我们设定每一个thread负责P中的一个坐标的matmul
-        所以一共有width * width个thread并行处理P的计算
-    */
-    int x = blockIdx.x * blockDim.x + threadIdx.x;
-    int y = blockIdx.y * blockDim.y + threadIdx.y;
-
-    float P_element = 0;
-    for (int k = 0; k < width; k++){
-        float M_element = M_device[y * width + k]; // 行
-        float N_element = N_device[k * width + x]; // 列
-        P_element += M_element * N_element;  // 这个结束就是行列相乘
-    }
-
-    P_device[y * width + x] = P_element; // 第几行 + 第几列
-}
+    // 分配grid, block
+    dim3 dimBlock(blockSize, blockSize);
+    int gridDim = (width + blockSize - 1) / blockSize;
+    dim3 dimGrid(gridDim);
 ```
 
-### 1.3 实验测试
-我自己这边跟韩导的实验结果不一样，他的卡上面实现了一个1500倍的加速但是我这边实现的是414倍的加速，在blockSize = 16的情况下实现的, 这里也说明了blockSize不是越大越好的
 ```bash
-matmul in cpu                  uses 4149.35 ms
-matmul in GPU Warmup           uses 173.9 ms
-matmul in GPU blockSize = 16   uses 9.90609 ms
-matmul in GPU blockSize = 32   uses 13.2933 ms
-Matmul result is same, precision is 1.0E-4
+matmul in cpu                  uses 4152.26 ms
+matmul in GPU Warmup           uses 189.667 ms
+matmul in GPU blockSize = 1    uses 2.92747 ms
+matmul in GPU blockSize = 16   uses 2.85372 ms
+matmul in GPU blockSize = 32   uses 2.86483 ms
+res is different in 32768, cpu: 260.76977539, gpu: 0.00000000
 ```
+
+这个没有报错, 这里grid(网格)只有一个,  然后这里不够块去计算了, 所以计算了一部分他就不计算了, 所以运行的速度快了很多, 以后如果CUDA编程中速度快了很多，要参考是否是没有完整的计算。
+
+
+
+

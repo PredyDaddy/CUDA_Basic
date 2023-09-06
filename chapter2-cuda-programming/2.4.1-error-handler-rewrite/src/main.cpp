@@ -132,6 +132,13 @@ int main()
     timer.stop();
     timer.duration<Timer::ms>("matmul in GPU blockSize = 32");
 
+    // GPU上的计算
+    // blockSize = 64;
+    // timer.start();
+    // MatmulOnDevice(h_matM, h_matN, d_matP, width, blockSize);
+    // timer.stop();
+    // timer.duration<Timer::ms>("matmul in GPU blockSize = 64");
+
     compareMat(h_matP, d_matP, size);
     return 0;
 }
