@@ -72,6 +72,4 @@ void MatmulOnDevice(float *M_host, float *N_host,
     cudaFree(P_device);
     cudaFree(M_device);
     cudaFree(N_device);
-
 }
-

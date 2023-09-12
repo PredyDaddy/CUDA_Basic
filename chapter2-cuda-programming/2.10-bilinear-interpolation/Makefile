@@ -1,8 +1,23 @@
-CONFIG        :=  ../../config/Makefile.config
-CONFIG_LOCAL  :=  ./config/Makefile.config
+# CONFIG        :=  ../../config/Makefile.config
+# CONFIG_LOCAL  :=  ./config/Makefile.config
 
-include $(CONFIG)
-include $(CONFIG_LOCAL)
+# include $(CONFIG)
+# include $(CONFIG_LOCAL)
+
+# 根据当前的环境修改gcc和cuda的版本
+CXX                         :=  g++
+CUDA_VER                    :=  11.7
+
+# opencv和TensorRT的安装目录
+OPENCV_INSTALL_DIR          :=  /usr/include/opencv4
+TENSORRT_INSTALL_DIR        :=  /usr
+
+# Compile options
+DEBUG                       :=  0
+SHOW_WARNING                :=  0
+
+# Compile applications
+APP				                  :=  trt-cuda
 
 BUILD_PATH    :=  build
 SRC_PATH      :=  src

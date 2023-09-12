@@ -1,6 +1,7 @@
 #include "cuda_runtime_api.h"
 #include "stdio.h"
 #include <iostream>
+#include "matmul.hpp"
 
 #include "utils.hpp"
 

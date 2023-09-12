@@ -161,7 +161,6 @@ build/matmul_gpu_basic.cu.o : src/matmul_gpu_basic.cu \
     /usr/include/stdint.h \
     /usr/include/x86_64-linux-gnu/bits/wchar.h \
     /usr/include/x86_64-linux-gnu/bits/stdint-uintn.h \
-    src/matmul_gpu_basic.h \
     src/utils.hpp \
     /usr/include/c++/9/system_error \
     /usr/include/x86_64-linux-gnu/c++/9/bits/error_constants.h \

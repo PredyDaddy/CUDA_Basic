@@ -115,3 +115,5 @@ void MatmulSharedOnDevice(float *M_host, float *N_host, float* P_host, int width
     cudaFree(N_device);
     cudaFree(M_device);
 }
+
+

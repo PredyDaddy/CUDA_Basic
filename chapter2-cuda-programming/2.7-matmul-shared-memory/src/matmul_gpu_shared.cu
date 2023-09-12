@@ -1,10 +1,12 @@
 #include "cuda_runtime_api.h"
 #include "utils.hpp"
 
+
 #define BLOCKSIZE 16
 
 /* 
     使用shared memory把计算一个tile所需要的数据分块存储到访问速度快的memory中
+    这里的M_device, N_device都是在Global Memory被cudaMalloc()分配的
 */
 __global__ void MatmulSharedStaticKernel(float *M_device, float *N_device, float *P_device, int width){
     __shared__ float M_deviceShared[BLOCKSIZE][BLOCKSIZE];
@@ -12,17 +14,18 @@ __global__ void MatmulSharedStaticKernel(float *M_device, float *N_device, float
     /* 
         对于x和y, 根据blockID, tile大小和threadID进行索引
     */
-    int x = blockIdx.x * blockDim.x + threadIdx.x;
-    int y = blockIdx.y * blockDim.y + threadIdx.y;
+    int x = blockIdx.x * blockDim.x + threadIdx.x;   // 这里4096x4096的行索引
+    int y = blockIdx.y * blockDim.y + threadIdx.y;   // 这里4096x4096的列索引
 
     float P_element = 0.0;
 
+    // 这里出现的是block里面的索引, 因为共享内存是block专属的东西
     int ty = threadIdx.y;
     int tx = threadIdx.x;
     /* 对于每一个P的元素，我们只需要循环遍历width / tile_width 次就okay了，这里有点绕，画图理解一下*/
     for (int m = 0; m < width / BLOCKSIZE; m ++) {
-        M_deviceShared[ty][tx] = M_device[y * width + (m * BLOCKSIZE + tx)];
-        N_deviceShared[ty][tx] = N_device[(m * BLOCKSIZE + ty)* width + x];
+        M_deviceShared[ty][tx] = M_device[y * width + (m * BLOCKSIZE + tx)]; // 先到第几行, 然后看看第几个block, 找到对应的x
+        N_deviceShared[ty][tx] = N_device[(m * BLOCKSIZE + ty)* width + x];  // 
         __syncthreads();
 
         for (int k = 0; k < BLOCKSIZE; k ++) {

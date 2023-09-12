@@ -36,7 +36,7 @@ void sleep_test(){
 
     /* GPU warmup */
     timer.start_gpu();
-    SleepSingleStream(src_host, tar_host, width, blockSize, taskCnt);
+    MySleepSingleStream(src_host, tar_host, width, blockSize, taskCnt);
     timer.stop_gpu();
 
 
@@ -57,7 +57,15 @@ void sleep_test(){
     std::sprintf(str, "sleep <<<(%2d,%2d), (%2d,%2d)>>>, %2d stream, %2d memcpy, %2d kernel", 
                  width / blockSize, width / blockSize, blockSize, blockSize, 
                  taskCnt, 1, taskCnt);
-    timer.duration_gpu(str);
+    timer.duration_gpu(str);    
+
+    timer.start_gpu();
+    experiment_local_overlap(src_host, tar_host, width, blockSize);
+    timer.stop_gpu();
+    std::sprintf(str, "sleep <<<(%2d,%2d), (%2d,%2d)>>>, %2d stream, %2d memcpy, %2d kernel", 
+                 width / blockSize, width / blockSize, blockSize, blockSize, 
+                 taskCnt, 1, taskCnt);
+    timer.duration_gpu(str); 
 }
 
 
