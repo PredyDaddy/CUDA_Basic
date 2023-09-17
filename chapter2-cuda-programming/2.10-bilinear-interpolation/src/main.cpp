@@ -9,6 +9,7 @@
 using namespace std;
 
 int main(){
+    cudaSetDevice(6);
     Timer timer;
 
     string file_path     = "data/deer.png";
